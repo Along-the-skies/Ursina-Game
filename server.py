@@ -18,6 +18,13 @@ state = {
 connections = set()
 
 
+def cleanup_connection(ws):
+    connections.discard(ws)
+    for team in teams.values():
+        if ws in team:
+            team.remove(ws)
+
+
 async def send_all():
     if not connections:
         return
@@ -31,7 +38,8 @@ async def send_all():
         except:
             dead.add(ws)
 
-    connections.difference_update(dead)
+    for ws in dead:
+        cleanup_connection(ws)
 
 
 async def handle(ws):
@@ -48,24 +56,25 @@ async def handle(ws):
         choice = data.get("team")
 
         if choice not in ["red", "blue"]:
-            await ws.send("invalid_team")
+            await ws.send(json.dumps({"type": "invalid_team"}))
             return
 
         teams[choice].append(ws)
         print(f"Player chose {choice}")
 
         connections.add(ws)
+        await ws.send(json.dumps(state))
 
         if teams["red"] and teams["blue"]:
             r = teams["red"].pop(0)
             b = teams["blue"].pop(0)
 
-            await r.send("match_start")
-            await b.send("match_start")
+            await r.send(json.dumps({"type": "match_start"}))
+            await b.send(json.dumps({"type": "match_start"}))
 
             print("Match started")
         else:
-            await ws.send("waiting")
+            await ws.send(json.dumps({"type": "waiting"}))
 
         async for msg in ws:
             try:
@@ -90,7 +99,7 @@ async def handle(ws):
             await send_all()
 
     finally:
-        connections.discard(ws)
+        cleanup_connection(ws)
         print("Player disconnected")
 
 

@@ -14,7 +14,7 @@ loop = asyncio.new_event_loop()
 # ================= CONNECT =================
 async def ws_connect():
     global ws
-    ws = await websockets.connect("ws://127.0.0.1:10000")  # change for server
+    ws = await websockets.connect("wss://ursina-game.onrender.com")  # change for server
     print("Connected")
 
 async def ws_send(data):
@@ -33,24 +33,44 @@ async def ws_listen():
     global red_pressed, blue_pressed, bridge_active
 
     async for msg in ws:
-        data = json.loads(msg)
+        try:
+            data = json.loads(msg)
+        except json.JSONDecodeError:
+            print("Ignored non-JSON message:", msg)
+            continue
+
+        msg_type = data.get("type")
+        if msg_type == "waiting":
+            print("Waiting for match...")
+            continue
+        elif msg_type == "match_start":
+            print("Match started")
+            continue
 
         if "bridge_active" in data:
-            bridge1.enabled = data["bridge_active"]
-            bridge1.collider = "box" if data["bridge_active"] else None
+            bridge_active = data["bridge_active"]
+            bridge1.enabled = bridge_active
+            bridge1.collider = "box" if bridge_active else None
 
         if "red_pressed" in data:
-            red_button.color = color.lime if data["red_pressed"] else color.red
+            red_pressed = data["red_pressed"]
+            red_button.color = color.lime if red_pressed else color.red
 
         if "blue_pressed" in data:
-            blue_button.color = color.cyan if data["blue_pressed"] else color.blue
+            blue_pressed = data["blue_pressed"]
+            blue_button.color = color.cyan if blue_pressed else color.blue
 
 
 def start_listener():
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(ws_connect())
-    loop.create_task(ws_listen())
-    loop.run_forever()
+    try:
+        loop.run_until_complete(ws_connect())
+        loop.create_task(ws_listen())
+        loop.run_forever()
+    except Exception as e:
+        print("WS listener stopped:", e)
+
+# optional: add reconnect logic here for production use
 
 
 threading.Thread(target=start_listener, daemon=True).start()
@@ -75,6 +95,7 @@ pos_text = None
 
 red_pressed = False
 blue_pressed = False
+bridge_active = False
 
 # ================= START GAME =================
 def start_game(choice):
@@ -117,12 +138,11 @@ def update():
 
     # button logic
     if player_team == "red":
-        if distance(player.position, red_button.position) < 1.5:
-            send({"button": True})
-
-    if player_team == "blue":
-        if distance(player.position, blue_button.position) < 1.5:
-            send({"button": True})
+        on_button = distance(player.position, red_button.position) < 1.5
+        send({"button": on_button})
+    elif player_team == "blue":
+        on_button = distance(player.position, blue_button.position) < 1.5
+        send({"button": on_button})
 
 
 # ================= MENU =================
