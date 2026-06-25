@@ -1,123 +1,105 @@
-import socket
+import os
 import json
-import threading
+import asyncio
+import websockets
 
-# Track waiting players
 teams = {"red": [], "blue": []}
 
-# Shared game state
 state = {
     "red_pressed": False,
     "blue_pressed": False,
     "bridge_active": False,
-    "players": {"red": {"x": 0, "y": 0, "z": 0},
-                "blue": {"x": 0, "y": 0, "z": 0}}
+    "players": {
+        "red": {"x": 0, "y": 0, "z": 0},
+        "blue": {"x": 0, "y": 0, "z": 0}
+    }
 }
 
-connections = []
-lock = threading.Lock()
+connections = set()
 
-# Broadcast state to all active players in a match
-def send_all():
-    data = json.dumps(state).encode()
-    with lock:
-        for c in connections:
-            try:
-                c.sendall(data + b"\n")
-            except:
-                pass
 
-# Handle each player
-def handle(conn):
-    buffer = ""
+async def send_all():
+    if not connections:
+        return
+
+    data = json.dumps(state)
+
+    dead = set()
+    for ws in connections:
+        try:
+            await ws.send(data)
+        except:
+            dead.add(ws)
+
+    connections.difference_update(dead)
+
+
+async def handle(ws):
+    choice = None
+
     try:
-        # First message must be team choice
-        msg = conn.recv(1024).decode().strip()
-
-        if not msg:
-            return
+        first = await ws.recv()
 
         try:
-            data = json.loads(msg)
+            data = json.loads(first)
         except json.JSONDecodeError:
-            print("Bad first message:", repr(msg))
             return
 
         choice = data.get("team")
 
         if choice not in ["red", "blue"]:
-            conn.sendall(b"invalid_team\n")
+            await ws.send("invalid_team")
             return
 
-        teams[choice].append(conn)
+        teams[choice].append(ws)
         print(f"Player chose {choice}")
+
+        connections.add(ws)
 
         if teams["red"] and teams["blue"]:
             r = teams["red"].pop(0)
             b = teams["blue"].pop(0)
-            connections.clear()
-            connections.extend([r, b])
-            r.sendall(b"match_start\n")
-            b.sendall(b"match_start\n")
-            print("Match started: Red + Blue")
+
+            await r.send("match_start")
+            await b.send("match_start")
+
+            print("Match started")
         else:
-            conn.sendall(b"waiting\n")
-            print("Waiting for mate...")
+            await ws.send("waiting")
 
-        while True:
-            chunk = conn.recv(1024).decode()
-            if not chunk:
-                break
+        async for msg in ws:
+            try:
+                data = json.loads(msg)
+            except json.JSONDecodeError:
+                continue
 
-            buffer += chunk
+            if "pos" in data:
+                state["players"][choice] = data["pos"]
 
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
+            if "button" in data:
+                if choice == "red":
+                    state["red_pressed"] = data["button"]
+                else:
+                    state["blue_pressed"] = data["button"]
 
-                if not line.strip():
-                    continue
+            state["bridge_active"] = (
+                state["red_pressed"] and
+                state["blue_pressed"]
+            )
 
-                try:
-                    data = json.loads(line.strip())
-                except json.JSONDecodeError:
-                    print("Bad JSON:", repr(line))
-                    continue
-
-                if "pos" in data:
-                    state["players"][choice] = data["pos"]
-
-                if "button" in data:
-                    if choice == "red":
-                        state["red_pressed"] = data["button"]
-                    else:
-                        state["blue_pressed"] = data["button"]
-
-                state["bridge_active"] = (
-                    state["red_pressed"] and state["blue_pressed"]
-                )
-
-                send_all()
+            await send_all()
 
     finally:
-        with lock:
-            if conn in connections:
-                connections.remove(conn)
-
-        conn.close()
+        connections.discard(ws)
         print("Player disconnected")
 
 
-# ================= MAIN SERVER =================
-def main():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("0.0.0.0", 5000))
-    server.listen()
-    print("Server listening on port 5000")
+async def main():
+    port = int(os.environ.get("PORT", 10000))
 
-    while True:
-        conn, addr = server.accept()
-        print("Player connected from", addr)
-        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    async with websockets.serve(handle, "0.0.0.0", port):
+        print(f"Listening on {port}")
+        await asyncio.Future()
 
-if __name__ == "__main__":
-    main()
+
+asyncio.run(main())
