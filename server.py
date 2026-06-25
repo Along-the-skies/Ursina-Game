@@ -33,10 +33,18 @@ def handle(conn):
     try:
         # First message must be team choice
         msg = conn.recv(1024).decode().strip()
+
         if not msg:
             return
-        data = json.loads(msg)
+
+        try:
+            data = json.loads(msg)
+        except json.JSONDecodeError:
+            print("Bad first message:", repr(msg))
+            return
+
         choice = data.get("team")
+
         if choice not in ["red", "blue"]:
             conn.sendall(b"invalid_team\n")
             return
@@ -56,38 +64,45 @@ def handle(conn):
             conn.sendall(b"waiting\n")
             print("Waiting for mate...")
 
-        # Keep listening for updates
         while True:
             chunk = conn.recv(1024).decode()
             if not chunk:
                 break
+
             buffer += chunk
+
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
+
                 if not line.strip():
                     continue
+
                 try:
                     data = json.loads(line.strip())
-                except json.JSONDecodeError as e:
-                    print(f"Bad JSON: {line} | {e}")
+                except json.JSONDecodeError:
+                    print("Bad JSON:", repr(line))
                     continue
 
-                # Update state
                 if "pos" in data:
                     state["players"][choice] = data["pos"]
+
                 if "button" in data:
                     if choice == "red":
                         state["red_pressed"] = data["button"]
-                    elif choice == "blue":
+                    else:
                         state["blue_pressed"] = data["button"]
 
-                state["bridge_active"] = state["red_pressed"] and state["blue_pressed"]
+                state["bridge_active"] = (
+                    state["red_pressed"] and state["blue_pressed"]
+                )
+
                 send_all()
 
     finally:
         with lock:
             if conn in connections:
                 connections.remove(conn)
+
         conn.close()
         print("Player disconnected")
 
