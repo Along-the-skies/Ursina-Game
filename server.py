@@ -29,6 +29,7 @@ def send_all():
 
 # Handle each player
 def handle(conn):
+    buffer = ""
     try:
         # First message must be team choice
         msg = conn.recv(1024).decode().strip()
@@ -40,11 +41,9 @@ def handle(conn):
             conn.sendall(b"invalid_team\n")
             return
 
-        # Add to team list
         teams[choice].append(conn)
         print(f"Player chose {choice}")
 
-        # Matchmaking
         if teams["red"] and teams["blue"]:
             r = teams["red"].pop(0)
             b = teams["blue"].pop(0)
@@ -59,31 +58,39 @@ def handle(conn):
 
         # Keep listening for updates
         while True:
-            msg = conn.recv(1024)
-            if not msg:
+            chunk = conn.recv(1024).decode()
+            if not chunk:
                 break
-            try:
-                data = json.loads(msg.decode().strip())
-            except:
-                continue
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line.strip())
+                except json.JSONDecodeError as e:
+                    print(f"Bad JSON: {line} | {e}")
+                    continue
 
-            # Update state
-            if "pos" in data:
-                state["players"][choice] = data["pos"]
-            if "button" in data:
-                if choice == "red":
-                    state["red_pressed"] = data["button"]
-                elif choice == "blue":
-                    state["blue_pressed"] = data["button"]
+                # Update state
+                if "pos" in data:
+                    state["players"][choice] = data["pos"]
+                if "button" in data:
+                    if choice == "red":
+                        state["red_pressed"] = data["button"]
+                    elif choice == "blue":
+                        state["blue_pressed"] = data["button"]
 
-            # Bridge logic
-            state["bridge_active"] = state["red_pressed"] and state["blue_pressed"]
-
-            send_all()
+                state["bridge_active"] = state["red_pressed"] and state["blue_pressed"]
+                send_all()
 
     finally:
+        with lock:
+            if conn in connections:
+                connections.remove(conn)
         conn.close()
         print("Player disconnected")
+
 
 # ================= MAIN SERVER =================
 def main():
