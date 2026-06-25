@@ -6,9 +6,13 @@ import websockets
 teams = {"red": [], "blue": []}
 
 state = {
+    "level": 1,
     "red_pressed": False,
     "blue_pressed": False,
     "bridge_active": False,
+    "door_open": False,
+    "exit_open": False,
+    "goal_open": False,
     "players": {
         "red": {"x": 0, "y": 0, "z": 0},
         "blue": {"x": 0, "y": 0, "z": 0}
@@ -23,6 +27,14 @@ def cleanup_connection(ws):
     for team in teams.values():
         if ws in team:
             team.remove(ws)
+
+
+def inside_zone(pos, center, radius=3):
+    return (
+        abs(pos["x"] - center[0]) <= radius and
+        abs(pos["y"] - center[1]) <= 2 and
+        abs(pos["z"] - center[2]) <= radius
+    )
 
 
 async def send_all():
@@ -91,10 +103,65 @@ async def handle(ws):
                 else:
                     state["blue_pressed"] = data["button"]
 
-            state["bridge_active"] = (
-                state["red_pressed"] and
-                state["blue_pressed"]
-            )
+            if state["level"] == 1:
+                state["bridge_active"] = (
+                    state["red_pressed"] and
+                    state["blue_pressed"]
+                )
+                if state["bridge_active"] and all(
+                    inside_zone(state["players"][team], (0, 0, 15), radius=5)
+                    for team in ["red", "blue"]
+                ):
+                    state["level"] = 2
+                    state["red_pressed"] = False
+                    state["blue_pressed"] = False
+                    state["bridge_active"] = False
+                    state["door_open"] = False
+                    state["exit_open"] = False
+                    state["goal_open"] = False
+
+            elif state["level"] == 2:
+                state["door_open"] = (
+                    state["red_pressed"] and
+                    state["blue_pressed"]
+                )
+                if state["door_open"] and all(
+                    inside_zone(state["players"][team], (0, 0, 22), radius=4)
+                    for team in ["red", "blue"]
+                ):
+                    state["level"] = 3
+                    state["red_pressed"] = False
+                    state["blue_pressed"] = False
+                    state["door_open"] = False
+                    state["exit_open"] = False
+                    state["goal_open"] = False
+
+            elif state["level"] == 3:
+                state["exit_open"] = (
+                    state["red_pressed"] and
+                    state["blue_pressed"]
+                )
+                if state["exit_open"] and all(
+                    inside_zone(state["players"][team], (0, 0, 28), radius=4)
+                    for team in ["red", "blue"]
+                ):
+                    state["level"] = 4
+                    state["red_pressed"] = False
+                    state["blue_pressed"] = False
+                    state["door_open"] = False
+                    state["exit_open"] = False
+                    state["goal_open"] = False
+
+            elif state["level"] == 4:
+                state["goal_open"] = (
+                    state["red_pressed"] and
+                    state["blue_pressed"]
+                )
+                if state["goal_open"] and all(
+                    inside_zone(state["players"][team], (0, 0, 34), radius=4)
+                    for team in ["red", "blue"]
+                ):
+                    state["level"] = 5
 
             await send_all()
 

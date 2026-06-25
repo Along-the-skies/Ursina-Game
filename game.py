@@ -30,7 +30,7 @@ def send(data):
 
 # ================= SERVER LISTENER =================
 async def ws_listen():
-    global red_pressed, blue_pressed, bridge_active
+    global red_pressed, blue_pressed, bridge_active, level, door_open, exit_open, goal_open
 
     async for msg in ws:
         try:
@@ -47,10 +47,37 @@ async def ws_listen():
             print("Match started")
             continue
 
+        if "level" in data:
+            level = data["level"]
+            if status_text is not None:
+                if level == 1:
+                    status_text.text = "Level 1: Build the bridge"
+                elif level == 2:
+                    status_text.text = "Level 2: Open the door"
+                elif level == 3:
+                    status_text.text = "Level 3: Open the exit"
+                elif level >= 4:
+                    status_text.text = "Level cleared!"
+
         if "bridge_active" in data:
             bridge_active = data["bridge_active"]
             bridge1.enabled = bridge_active
             bridge1.collider = "box" if bridge_active else None
+
+        if "door_open" in data and door:
+            door_open = data["door_open"]
+            door.enabled = (level >= 2 and not door_open)
+            door.collider = "box" if (level >= 2 and not door_open) else None
+
+        if "exit_open" in data and exit_gate:
+            exit_open = data["exit_open"]
+            exit_gate.enabled = (level >= 3 and not exit_open)
+            exit_gate.collider = "box" if (level >= 3 and not exit_open) else None
+
+        if "goal_open" in data and goal_gate:
+            goal_open = data["goal_open"]
+            goal_gate.enabled = (level >= 4 and not goal_open)
+            goal_gate.collider = "box" if (level >= 4 and not goal_open) else None
 
         if "red_pressed" in data:
             red_pressed = data["red_pressed"]
@@ -59,6 +86,14 @@ async def ws_listen():
         if "blue_pressed" in data:
             blue_pressed = data["blue_pressed"]
             blue_button.color = color.cyan if blue_pressed else color.blue
+
+        if "players" in data and remote_player:
+            remote_data = data["players"].get(remote_team)
+            if remote_data:
+                remote_player.position = Vec3(remote_data["x"], remote_data["y"], remote_data["z"])
+
+        if "level" in data and level_text:
+            level_text.text = f"Level {level}"
 
 
 def start_listener():
@@ -78,8 +113,14 @@ threading.Thread(target=start_listener, daemon=True).start()
 # ================= MAP =================
 road = Entity(model="cube", color=color.gray, scale=(18, 0.5, 3), position=(0, 0, 3), collider="box")
 level1 = Entity(model="cube", color=color.gray, scale=(18, 0.5, 3), position=(0, 0, 15), collider="box")
+level2 = Entity(model="cube", color=color.gray, scale=(18, 0.5, 3), position=(0, 0, 22), collider="box")
+level3 = Entity(model="cube", color=color.gray, scale=(18, 0.5, 3), position=(0, 0, 28), collider="box")
 
 bridge1 = Entity(model="cube", color=color.gray, scale=(3, 0.5, 9), position=(0, 0, 9), enabled=False)
+
+door = Entity(model="cube", color=color.orange, scale=(6, 3.5, 0.4), position=(0, 2, 19.5), collider="box", enabled=False)
+exit_gate = Entity(model="cube", color=color.green, scale=(6, 3.5, 0.4), position=(0, 2, 25.5), collider="box", enabled=False)
+goal_gate = Entity(model="cube", color=color.gold, scale=(6, 3.5, 0.4), position=(0, 2, 33.5), collider="box", enabled=False)
 
 ground_red = Entity(model="cube", color=color.red, scale=(4, 0.5, 3), position=(-7, 0, 0), collider="box")
 ground_blue = Entity(model="cube", color=color.blue, scale=(4, 0.5, 3), position=(7, 0, 0), collider="box")
@@ -91,15 +132,23 @@ blue_button = Entity(model="cube", color=color.blue, scale=(1.3, 0.2, 1.3), posi
 player = None
 spawn_point = None
 player_team = None
+remote_team = None
+remote_player = None
 pos_text = None
+level_text = None
+status_text = None
 
 red_pressed = False
 blue_pressed = False
 bridge_active = False
+level = 1
+door_open = False
+exit_open = False
+goal_open = False
 
 # ================= START GAME =================
 def start_game(choice):
-    global player, spawn_point, player_team, pos_text
+    global player, spawn_point, player_team, remote_team, remote_player, pos_text, level_text, status_text
 
     player_team = choice
 
@@ -117,10 +166,15 @@ def start_game(choice):
     send({"team": choice})
 
     player = FirstPersonController(position=spawn_point)
-
     Entity(parent=player, model="cube", color=body_color, scale=(0.6, 1.2, 0.6), y=0.5)
 
+    remote_team = "blue" if choice == "red" else "red"
+    remote_player = Entity(model="cube", color=color.azure if remote_team == "blue" else color.pink,
+                           scale=(0.8, 1.3, 0.8), position=(0, -10, 0))
+
     pos_text = Text("", x=-0.85, y=0.45, scale=1.5, color=color.yellow)
+    level_text = Text("Level 1", x=-0.85, y=0.35, scale=1.2, color=color.white)
+    status_text = Text("Waiting for match...", x=-0.85, y=0.25, scale=1.1, color=color.yellow)
 
 
 # ================= UPDATE LOOP =================
