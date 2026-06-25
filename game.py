@@ -168,6 +168,12 @@ def start_game(choice):
     player = FirstPersonController(position=spawn_point)
     Entity(parent=player, model="cube", color=body_color, scale=(0.6, 1.2, 0.6), y=0.5)
 
+    camera.parent = player
+    camera.position = Vec3(0, 2, -10)
+    camera.rotation_x = 10
+    camera.rotation_y = 0
+    camera.rotation_z = 0
+
     remote_team = "blue" if choice == "red" else "red"
     remote_player = Entity(model="cube", color=color.azure if remote_team == "blue" else color.pink,
                            scale=(0.8, 1.3, 0.8), position=(0, -10, 0))
@@ -186,6 +192,8 @@ def update():
 
     if player.y < -10:
         player.position = spawn_point
+
+    camera.look_at(player.position + Vec3(0, 1, 0))
 
     # send position (throttled by frame, OK for small game)
     send({"pos": {"x": player.x, "y": player.y, "z": player.z}})

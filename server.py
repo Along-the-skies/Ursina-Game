@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import time
 import websockets
 
 teams = {"red": [], "blue": []}
@@ -20,6 +21,7 @@ state = {
 }
 
 connections = set()
+bridge_release_deadline = None
 
 
 def cleanup_connection(ws):
@@ -55,6 +57,7 @@ async def send_all():
 
 
 async def handle(ws):
+    global bridge_release_deadline
     choice = None
 
     try:
@@ -104,10 +107,19 @@ async def handle(ws):
                     state["blue_pressed"] = data["button"]
 
             if state["level"] == 1:
-                state["bridge_active"] = (
-                    state["red_pressed"] and
-                    state["blue_pressed"]
-                )
+                if state["red_pressed"] and state["blue_pressed"]:
+                    state["bridge_active"] = True
+                    bridge_release_deadline = None
+                else:
+                    if state["bridge_active"]:
+                        if bridge_release_deadline is None:
+                            bridge_release_deadline = time.monotonic() + 6
+                        elif time.monotonic() >= bridge_release_deadline:
+                            state["bridge_active"] = False
+                            bridge_release_deadline = None
+                    else:
+                        bridge_release_deadline = None
+
                 if state["bridge_active"] and all(
                     inside_zone(state["players"][team], (0, 0, 15), radius=5)
                     for team in ["red", "blue"]
