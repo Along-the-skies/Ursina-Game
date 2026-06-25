@@ -41,10 +41,24 @@ async def ws_listen():
 
         msg_type = data.get("type")
         if msg_type == "waiting":
-            print("Waiting for match...")
+            if status_text is not None:
+                status_text.text = data.get("text", "Waiting for match...")
+            invoke(clear_status_text, delay=2)
             continue
         elif msg_type == "match_start":
-            print("Match started")
+            if status_text is not None:
+                status_text.text = "Match started"
+            invoke(clear_status_text, delay=2)
+            continue
+        elif msg_type == "info":
+            if status_text is not None:
+                status_text.text = data.get("text", "")
+            invoke(clear_status_text, delay=data.get("duration", 2))
+            continue
+        elif msg_type == "state":
+            full_state = data.get("state")
+            if full_state:
+                update_full_state(full_state)
             continue
 
         if "level" in data:
@@ -94,6 +108,42 @@ async def ws_listen():
 
         if "level" in data and level_text:
             level_text.text = f"Level {level}"
+
+
+def clear_status_text():
+    global status_text
+    if status_text is not None:
+        status_text.text = ""
+
+
+def update_full_state(full_state):
+    global bridge_active, red_pressed, blue_pressed, door_open, exit_open, goal_open, level
+
+    bridge_active = full_state.get("bridge_active", bridge_active)
+    red_pressed = full_state.get("red_pressed", red_pressed)
+    blue_pressed = full_state.get("blue_pressed", blue_pressed)
+    door_open = full_state.get("door_open", door_open)
+    exit_open = full_state.get("exit_open", exit_open)
+    goal_open = full_state.get("goal_open", goal_open)
+    level = full_state.get("level", level)
+
+    if "players" in full_state and remote_player:
+        remote_data = full_state["players"].get(remote_team)
+        if remote_data:
+            remote_player.position = Vec3(remote_data["x"], remote_data["y"], remote_data["z"])
+
+    if bridge_active is not None:
+        bridge1.enabled = bridge_active
+        bridge1.collider = "box" if bridge_active else None
+    if door is not None:
+        door.enabled = (level >= 2 and not door_open)
+        door.collider = "box" if (level >= 2 and not door_open) else None
+    if exit_gate is not None:
+        exit_gate.enabled = (level >= 3 and not exit_open)
+        exit_gate.collider = "box" if (level >= 3 and not exit_open) else None
+    if goal_gate is not None:
+        goal_gate.enabled = (level >= 4 and not goal_open)
+        goal_gate.collider = "box" if (level >= 4 and not goal_open) else None
 
 
 def start_listener():

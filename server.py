@@ -31,6 +31,24 @@ def cleanup_connection(ws):
             team.remove(ws)
 
 
+async def send_json(ws, payload):
+    try:
+        await ws.send(json.dumps(payload))
+    except:
+        cleanup_connection(ws)
+
+
+async def broadcast_json(payload):
+    dead = set()
+    for ws in connections:
+        try:
+            await ws.send(json.dumps(payload))
+        except:
+            dead.add(ws)
+    for ws in dead:
+        cleanup_connection(ws)
+
+
 def inside_zone(pos, center, radius=3):
     return (
         abs(pos["x"] - center[0]) <= radius and
@@ -71,25 +89,30 @@ async def handle(ws):
         choice = data.get("team")
 
         if choice not in ["red", "blue"]:
-            await ws.send(json.dumps({"type": "invalid_team"}))
+            await send_json(ws, {"type": "invalid_team", "text": "Invalid team"})
             return
 
         teams[choice].append(ws)
         print(f"Player chose {choice}")
 
         connections.add(ws)
-        await ws.send(json.dumps(state))
+        await send_json(ws, {"type": "state", "state": state})
+        await broadcast_json({"type": "info", "text": f"{choice.capitalize()} has joined", "duration": 2})
 
         if teams["red"] and teams["blue"]:
             r = teams["red"].pop(0)
             b = teams["blue"].pop(0)
 
-            await r.send(json.dumps({"type": "match_start"}))
-            await b.send(json.dumps({"type": "match_start"}))
+            await broadcast_json({"type": "info", "text": "Match started", "duration": 2})
+            await send_json(r, {"type": "match_start"})
+            await send_json(b, {"type": "match_start"})
+            await send_json(r, {"type": "state", "state": state})
+            await send_json(b, {"type": "state", "state": state})
+            await send_all()
 
             print("Match started")
         else:
-            await ws.send(json.dumps({"type": "waiting"}))
+            await send_json(ws, {"type": "waiting", "text": "Waiting for match...", "duration": 2})
 
         async for msg in ws:
             try:
